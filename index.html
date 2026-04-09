@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FraudSight - Tax Evasion Network Radar</title>
+    <meta name="description" content="A multi-agent AI system dashboard to detect tax evasion networks.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/styles.css">
+    <!-- D3.js -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+    <div class="glow-bg"></div>
+    <div class="glow-bg-bottom"></div>
+    
+    <div class="sidebar">
+        <div class="logo">
+            <i data-lucide="shield-alert"></i>
+            <h2>FraudSight</h2>
+        </div>
+        <nav id="sidebar-nav">
+            <a href="#" data-page="dashboard" class="active" onclick="switchPage('dashboard')"><i data-lucide="layout-dashboard"></i> Dashboard</a>
+            <a href="#" data-page="graph" onclick="switchPage('graph')"><i data-lucide="network"></i> Entity Graph</a>
+            <a href="#" data-page="logs" onclick="switchPage('logs')"><i data-lucide="users"></i> Privacy Logs</a>
+            <a href="#" data-page="settings" onclick="switchPage('settings')"><i data-lucide="settings"></i> Settings</a>
+        </nav>
+        <div class="agent-status" id="agent-container">
+            <h3>Active Agents Status</h3>
+            <div class="agent" id="agent-collection">
+                <div class="agent-header">
+                    <span class="status-dot green"></span> Collection Agent
+                </div>
+                <div class="agent-details">Standby</div>
+            </div>
+            <div class="agent" id="agent-processing">
+                <div class="agent-header">
+                    <span class="status-dot green"></span> Processing Agent
+                </div>
+                <div class="agent-details">Standby</div>
+            </div>
+            <div class="agent" id="agent-privacy">
+                <div class="agent-header">
+                    <span class="status-dot green"></span> Privacy Agent
+                </div>
+                <div class="agent-details">Standby</div>
+            </div>
+            <div class="agent" id="agent-linking">
+                <div class="agent-header">
+                    <span class="status-dot green"></span> Linking Agent
+                </div>
+                <div class="agent-details">Standby</div>
+            </div>
+            <div class="agent" id="agent-fraud">
+                <div class="agent-header">
+                    <span class="status-dot yellow glow-pulse"></span> Fraud Agent
+                </div>
+                <div class="agent-details">Standby | High Alert</div>
+            </div>
+        </div>
+    </div>
+
+    <main class="content">
+        <!-- Dashboard Page -->
+        <div id="page-dashboard" class="page active">
+            <header>
+                <div class="header-titles">
+                    <h1>Tax Evasion Network Radar</h1>
+                    <p>Real-time graph analytics of multi-agency anonymized datasets.</p>
+                </div>
+                <div class="header-controls">
+                    <button class="secondary-btn" id="export-btn" onclick="exportData()">
+                        <i data-lucide="download"></i> Export Data
+                    </button>
+                    <button class="primary-btn" id="analyze-btn" onclick="runAnalysis()">
+                        <i data-lucide="play"></i> Run Agent Analysis
+                    </button>
+                </div>
+            </header>
+
+            <section class="top-metrics">
+                <div class="metric-card bg-gradient-1">
+                    <div class="metric-icon"><i data-lucide="database"></i></div>
+                    <div class="metric-info">
+                        <h3>Records Scanned</h3>
+                        <h2 id="metric-records">0</h2>
+                    </div>
+                </div>
+                <div class="metric-card bg-gradient-2">
+                    <div class="metric-icon"><i data-lucide="link"></i></div>
+                    <div class="metric-info">
+                        <h3>Cross-Agency Links</h3>
+                        <h2 id="metric-links">0</h2>
+                    </div>
+                </div>
+                <div class="metric-card bg-gradient-3">
+                    <div class="metric-icon"><i data-lucide="shield-off"></i></div>
+                    <div class="metric-info">
+                        <h3>Anomalies Detected</h3>
+                        <h2 id="metric-anomalies">0</h2>
+                    </div>
+                </div>
+            </section>
+
+            <section class="dashboard-grid">
+                <div class="card graph-card" id="graph-card-dash">
+                    <div class="card-header">
+                        <h3><i data-lucide="share-2"></i> Entity Network Preview</h3>
+                        <button class="icon-btn" onclick="switchPage('graph')" title="Open Interactive Graph">
+                            <i data-lucide="maximize"></i>
+                        </button>
+                    </div>
+                    <div id="dash-graph-container" class="graph-container">
+                        <div class="placeholder-msg">Run Analysis to observe network patterns</div>
+                    </div>
+                </div>
+
+                <div class="card suspicious-card">
+                    <div class="card-header">
+                        <h3><i data-lucide="alert-triangle"></i> High-Risk Entities</h3>
+                        <span class="badge" id="risk-count">0 Detected</span>
+                    </div>
+                    <div class="table-container">
+                        <table id="suspicious-table">
+                            <thead>
+                                <tr>
+                                    <th>Company ID</th>
+                                    <th>Reason</th>
+                                    <th>Import Value</th>
+                                    <th>Tax Paid</th>
+                                </tr>
+                            </thead>
+                            <tbody id="suspicious-body">
+                                <tr>
+                                    <td colspan="4" style="text-align: center; color: #828292;">No data yet. Run analysis.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <!-- Entity Graph Page -->
+        <div id="page-graph" class="page">
+            <header>
+                <div class="header-titles">
+                    <h1>Network Graph Analysis</h1>
+                    <p>Interactive visualization of entity relationships and financial links. Drag to pan, scroll to zoom.</p>
+                </div>
+                <div class="header-controls">
+                    <select id="graph-risk-filter" class="custom-select" onchange="renderGraph()">
+                        <option value="all" selected>All Risks</option>
+                        <option value="high">High Risk Only</option>
+                    </select>
+                    <button class="primary-btn" onclick="refreshGraphLayout()">
+                        <i data-lucide="refresh-cw"></i> Refresh Layout
+                    </button>
+                </div>
+            </header>
+            <div class="graph-page-layout">
+                <div class="card full-graph-card">
+                    <div id="full-graph-container" class="graph-container">
+                        <div class="placeholder-msg">Run Analysis to observe network patterns</div>
+                    </div>
+                    <div id="graph-tooltip" class="tooltip"></div>
+                </div>
+                <div class="card side-panel" id="entity-side-panel">
+                    <h3><i data-lucide="info"></i> Entity Details</h3>
+                    <div id="side-panel-content">
+                        <div class="side-panel-empty">
+                            <i data-lucide="mouse-pointer-click" style="width: 48px; height: 48px; margin-bottom: 12px; color: var(--text-muted);"></i>
+                            <p>Click a node in the graph to view detailed entity information, risk scores, and transactions.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Privacy Logs Page -->
+        <div id="page-logs" class="page">
+            <header>
+                <div class="header-titles">
+                    <h1>Privacy Compliance Audit Logs</h1>
+                    <p>Track multi-agency data access and processing compliance.</p>
+                </div>
+                <div class="header-controls">
+                    <select id="log-agent-filter" class="custom-select" onchange="filterLogs()">
+                        <option value="all">All Agents</option>
+                        <option value="Collection Agent">Collection Agent</option>
+                        <option value="Processing Agent">Processing Agent</option>
+                        <option value="Privacy Agent">Privacy Agent</option>
+                        <option value="Linking Agent">Linking Agent</option>
+                        <option value="Fraud Agent">Fraud Agent</option>
+                    </select>
+                    <input type="date" id="log-date-filter" class="custom-input" onchange="filterLogs()">
+                    <button class="secondary-btn" onclick="exportLogs()"><i data-lucide="download"></i> Export Logs</button>
+                </div>
+            </header>
+            <div class="card logs-card">
+                <div class="table-container">
+                    <table id="logs-table">
+                        <thead>
+                            <tr>
+                                <th>Timestamp</th>
+                                <th>Agent Name</th>
+                                <th>Data Accessed</th>
+                                <th>Purpose</th>
+                                <th>Compliance Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="logs-body">
+                            <!-- Populated dynamically -->
+                            <tr>
+                                <td colspan="5" style="text-align: center; color: #828292;">Loading logs...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Page -->
+        <div id="page-settings" class="page">
+            <header>
+                <div class="header-titles">
+                    <h1>System Settings</h1>
+                    <p>Configure agent behaviors, rules, and system limits.</p>
+                </div>
+            </header>
+            <div class="settings-grid">
+                <div class="card settings-card">
+                    <h3><i data-lucide="sliders"></i> System Configuration</h3>
+                    <div class="settings-group">
+                        <label>Data Retention Period</label>
+                        <select class="custom-select full-width">
+                            <option>30 Days</option>
+                            <option>90 Days</option>
+                            <option>1 Year</option>
+                            <option>Indefinite</option>
+                        </select>
+                    </div>
+                    <div class="settings-group">
+                        <label>Max Records Per Scan</label>
+                        <input type="number" class="custom-input full-width" value="10000">
+                    </div>
+                    <div class="settings-group">
+                        <label>Risk Threshold: <span id="risk-val" style="color: var(--warning); font-weight: 600;">75</span></label>
+                        <input type="range" class="custom-slider full-width" min="0" max="100" value="75" oninput="document.getElementById('risk-val').innerText = this.value">
+                    </div>
+                </div>
+                
+                <div class="card settings-card">
+                    <h3><i data-lucide="cpu"></i> Agent Controls</h3>
+                    <div class="toggle-row">
+                        <span>Collection Agent</span>
+                        <label class="switch"><input type="checkbox" checked><span class="slider round"></span></label>
+                    </div>
+                    <div class="toggle-row">
+                        <span>Processing Agent</span>
+                        <label class="switch"><input type="checkbox" checked><span class="slider round"></span></label>
+                    </div>
+                    <div class="toggle-row">
+                        <span>Privacy Agent</span>
+                        <label class="switch"><input type="checkbox" checked><span class="slider round"></span></label>
+                    </div>
+                    <div class="toggle-row">
+                        <span>Linking Agent</span>
+                        <label class="switch"><input type="checkbox" checked><span class="slider round"></span></label>
+                    </div>
+                    <div class="toggle-row">
+                        <span>Fraud Detection Agent</span>
+                        <label class="switch"><input type="checkbox" checked><span class="slider round"></span></label>
+                    </div>
+                </div>
+
+                <div class="card settings-card">
+                    <h3><i data-lucide="shield"></i> Security Settings</h3>
+                    <div class="toggle-row">
+                        <span>Enable Encryption</span>
+                        <label class="switch"><input type="checkbox" checked><span class="slider round"></span></label>
+                    </div>
+                    <div class="toggle-row">
+                        <span>Enable Anonymization</span>
+                        <label class="switch"><input type="checkbox" checked><span class="slider round"></span></label>
+                    </div>
+                    <div class="settings-group mt-3">
+                        <label>Access Role Permissions</label>
+                        <select class="custom-select full-width">
+                            <option>Admin</option>
+                            <option>Analyst</option>
+                            <option>Auditor</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="card settings-card">
+                    <h3><i data-lucide="download-cloud"></i> Export & Backup</h3>
+                    <div class="settings-group">
+                        <label>Default Export Format</label>
+                        <select class="custom-select full-width">
+                            <option>CSV</option>
+                            <option>JSON</option>
+                            <option>PDF</option>
+                        </select>
+                    </div>
+                    <button class="primary-btn full-width mt-3" style="justify-content: center;" onclick="saveSettings()">
+                        <i data-lucide="save"></i> Save All Settings
+                    </button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <div id="toast-container" class="toast-container"></div>
+
+    <script src="/static/app.js"></script>
+    <script>
+        lucide.createIcons();
+    </script>
+</body>
+</html>
