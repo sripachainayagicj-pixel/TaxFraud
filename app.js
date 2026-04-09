@@ -195,35 +195,54 @@ function renderGraph() {
     
     // Apply filters
     const riskFilter = document.getElementById('graph-risk-filter').value;
-    let filteredNodes = currentGraphData.nodes;
-    let filteredLinks = currentGraphData.links;
+    let nodesToRender = currentGraphData.nodes;
+    let linksToRender = currentGraphData.links;
     
     if (riskFilter === 'high') {
-        // Find high risk node IDs (group 1 usually, or we determine by degree)
-        // Since backend doesn't explicitly flag "risk" in nodes payload, we simulate by filtering to nodes connected to flagged companies
-        // For simplicity UI-side, just show companies (group 1) and their immediate links.
-        filteredNodes = currentGraphData.nodes.filter(n => n.group === 1);
-        const nodeIds = new Set(filteredNodes.map(n => n.id));
+        // Filter to show only high-risk entities and their connections
+        // First, find nodes that are suspicious (those with high risk scores)
+        const suspiciousNodeIds = new Set();
         
-        filteredLinks = currentGraphData.links.filter(l => 
-            nodeIds.has(l.source.id || l.source) || nodeIds.has(l.target.id || l.target)
-        );
-        
-        // Add back owners that are part of these links
-        filteredLinks.forEach(l => {
-            if (!nodeIds.has(l.source.id || l.source)) {
-                const n = currentGraphData.nodes.find(node => node.id === (l.source.id || l.source));
-                if(n) { filteredNodes.push(n); nodeIds.add(n.id); }
-            }
-            if (!nodeIds.has(l.target.id || l.target)) {
-                const n = currentGraphData.nodes.find(node => node.id === (l.target.id || l.target));
-                if(n) { filteredNodes.push(n); nodeIds.add(n.id); }
+        // Check the suspicious table to identify high-risk entities
+        const tbody = document.getElementById('suspicious-body');
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        rows.forEach(tr => {
+            const td = tr.querySelector('td');
+            if (td) {
+                suspiciousNodeIds.add(td.innerText.trim());
             }
         });
+        
+        // If no suspicious nodes found, just show all (fallback to all data)
+        if (suspiciousNodeIds.size === 0) {
+            nodesToRender = currentGraphData.nodes;
+            linksToRender = currentGraphData.links;
+        } else {
+            // Keep suspicious nodes and all nodes connected to them
+            const nodeIds = new Set(suspiciousNodeIds);
+            
+            // Add all nodes that connect to suspicious nodes
+            currentGraphData.links.forEach(l => {
+                const sourceId = typeof l.source === 'string' ? l.source : l.source.id;
+                const targetId = typeof l.target === 'string' ? l.target : l.target.id;
+                
+                if (suspiciousNodeIds.has(sourceId)) nodeIds.add(targetId);
+                if (suspiciousNodeIds.has(targetId)) nodeIds.add(sourceId);
+            });
+            
+            // Filter nodes and links
+            nodesToRender = currentGraphData.nodes.filter(n => nodeIds.has(n.id));
+            linksToRender = currentGraphData.links.filter(l => {
+                const sourceId = typeof l.source === 'string' ? l.source : l.source.id;
+                const targetId = typeof l.target === 'string' ? l.target : l.target.id;
+                return nodeIds.has(sourceId) && nodeIds.has(targetId);
+            });
+        }
     }
-
-    const filteredData = { nodes: JSON.parse(JSON.stringify(filteredNodes)), links: JSON.parse(JSON.stringify(filteredLinks)) };
-    createForceGraph(container, filteredData, true);
+    
+    // Create graph data object with proper references (avoid deep copy to maintain data integrity)
+    const graphData = { nodes: nodesToRender, links: linksToRender };
+    createForceGraph(container, graphData, true);
 }
 
 function applyGraphFilters() {
@@ -248,8 +267,21 @@ function refreshGraphLayout() {
 }
 
 function createForceGraph(container, graphData, isInteractive) {
-    const width = container.clientWidth;
-    const height = container.clientHeight || 400; // fallback
+    // Clear any existing SVG
+    d3.select(container).selectAll("svg").remove();
+    
+    const width = container.clientWidth || 800;
+    const height = container.clientHeight || 600;
+
+    // Initialize node positions with random spread to help convergence
+    graphData.nodes.forEach((node, i) => {
+        if (!node.x) {
+            node.x = width * 0.3 + Math.random() * width * 0.4;
+        }
+        if (!node.y) {
+            node.y = height * 0.3 + Math.random() * height * 0.4;
+        }
+    });
 
     const svg = d3.select(container)
         .append("svg")
@@ -282,83 +314,52 @@ function createForceGraph(container, graphData, isInteractive) {
                     default: return 120; // transaction
                 }
             })
-            .strength(0.7) // Stronger link attraction
+            .strength(0.5) // Link attraction strength
         )
         .force("charge", d3.forceManyBody()
-            .strength(d => d.group === 1 ? -300 : -200) // Stronger repulsion for companies
-            .distanceMax(300)
+            .strength(d => d.group === 1 ? -500 : -300) // Much stronger repulsion
+            .distanceMax(400)
         )
         .force("center", d3.forceCenter(width / 2, height / 2)
-            .strength(0.05) // Weak center force to prevent edge sticking
+            .strength(0.1) // Moderate centering force
         )
-        .force("x", d3.forceX(width / 2).strength(0.02)) // Gentle centering
-        .force("y", d3.forceY(height / 2).strength(0.02)) // Gentle centering
+        .force("x", d3.forceX(width / 2).strength(0.05)) // Gentle x-centering
+        .force("y", d3.forceY(height / 2).strength(0.05)) // Gentle y-centering
         .force("collision", d3.forceCollide()
-            .radius(d => d.group === 1 ? 25 : 18) // Prevent overlapping
-            .strength(0.8)
+            .radius(d => d.group === 1 ? 30 : 22) // Prevent overlapping
+            .strength(0.9)
         )
-        .alphaDecay(0.02) // Slower decay for better stabilization
-        .alphaMin(0.001) // Lower minimum alpha for more stable layout
-        .velocityDecay(0.4); // More realistic movement
+        .alphaDecay(0.03) // Better convergence speed
+        .alphaMin(0.001)
+        .velocityDecay(0.6); // Better spreading
 
-    // Create curved edges with relationship-based styling
+    // Create simple straight edges with risk-based styling
     const link = g.append("g")
         .attr("class", "links")
-        .selectAll("path")
+        .selectAll("line")
         .data(graphData.links)
-        .join("path")
+        .join("line")
         .attr("stroke", d => {
-            const type = d.type || 'transaction';
-            switch(type) {
-                case 'shared_director': return '#ef4444'; // red for suspicious
-                case 'shared_address': return '#f97316'; // orange
-                case 'shared_tax_id': return '#eab308'; // yellow
-                default: return '#64748b'; // gray for normal transactions
-            }
+            // Determine edge color based on node risk levels
+            // Handle both string IDs and node objects (before/after d3 processing)
+            const sourceId = typeof d.source === 'string' ? d.source : d.source.id;
+            const targetId = typeof d.target === 'string' ? d.target : d.target.id;
+            const sourceNode = graphData.nodes.find(n => n.id === sourceId);
+            const targetNode = graphData.nodes.find(n => n.id === targetId);
+            const sourceRisk = sourceNode?.risk || 0;
+            const targetRisk = targetNode?.risk || 0;
+            
+            // Red if both nodes are high risk (confirmed fraud connection)
+            if (sourceRisk > 0.7 && targetRisk > 0.7) return '#ef4444';
+            // Yellow if either node is suspicious
+            if (sourceRisk > 0.3 || targetRisk > 0.3) return '#eab308';
+            // Gray for normal transactions
+            return '#6b7280';
         })
-        .attr("stroke-opacity", d => {
-            const type = d.type || 'transaction';
-            return type === 'shared_director' ? 0.9 : 0.6; // Higher opacity for suspicious links
-        })
-        .attr("stroke-width", d => {
-            const type = d.type || 'transaction';
-            const baseWidth = Math.sqrt(d.value || 2) * (isInteractive ? 1.5 : 1);
-            return type === 'shared_director' ? baseWidth * 1.5 : baseWidth; // Thicker suspicious links
-        })
-        .attr("fill", "none")
-        .attr("marker-end", d => {
-            const type = d.type || 'transaction';
-            return type === 'shared_director' ? "url(#arrowhead-red)" : "url(#arrowhead-gray)";
-        });
+        .attr("stroke-opacity", 0.7)
+        .attr("stroke-width", 1.5)
+        .attr("stroke-linecap", "round");
 
-    // Add arrow markers for directed edges
-    const defs = svg.append("defs");
-    
-    defs.append("marker")
-        .attr("id", "arrowhead-gray")
-        .attr("viewBox", "0 -5 10 10")
-        .attr("refX", 20)
-        .attr("refY", 0)
-        .attr("markerWidth", 6)
-        .attr("markerHeight", 6)
-        .attr("orient", "auto")
-        .append("path")
-        .attr("d", "M0,-5L10,0L0,5")
-        .attr("fill", "#64748b")
-        .attr("opacity", 0.6);
-
-    defs.append("marker")
-        .attr("id", "arrowhead-red")
-        .attr("viewBox", "0 -5 10 10")
-        .attr("refX", 20)
-        .attr("refY", 0)
-        .attr("markerWidth", 6)
-        .attr("markerHeight", 6)
-        .attr("orient", "auto")
-        .append("path")
-        .attr("d", "M0,-5L10,0L0,5")
-        .attr("fill", "#ef4444")
-        .attr("opacity", 0.9);
 
     const tooltip = d3.select("#graph-tooltip");
 
@@ -409,9 +410,12 @@ function createForceGraph(container, graphData, isInteractive) {
     if (isInteractive) {
         node.on("mouseover", (event, d) => {
             // Enhanced tooltip with relationship info
-            const connections = currentGraphData.links.filter(l => 
-                l.source.id === d.id || l.target.id === d.id
-            );
+            // Handle both string IDs and node objects (before/after d3 processing)
+            const connections = currentGraphData.links.filter(l => {
+                const sourceId = typeof l.source === 'string' ? l.source : l.source.id;
+                const targetId = typeof l.target === 'string' ? l.target : l.target.id;
+                return sourceId === d.id || targetId === d.id;
+            });
             const relationshipTypes = [...new Set(connections.map(l => l.type || 'transaction'))];
             
             tooltip.style("opacity", 1)
@@ -484,14 +488,12 @@ function createForceGraph(container, graphData, isInteractive) {
 
     // Enhanced tick function with better positioning constraints
     simulation.on("tick", () => {
-        // Update curved links
-        link.attr("d", d => {
-            const dx = d.target.x - d.source.x;
-            const dy = d.target.y - d.source.y;
-            const dr = Math.sqrt(dx * dx + dy * dy) * 1.5; // Curvature factor
-            
-            return `M${d.source.x},${d.source.y}A${dr},${dr} 0 0,1 ${d.target.x},${d.target.y}`;
-        });
+        // Update straight edges
+        link
+            .attr("x1", d => d.source.x)
+            .attr("y1", d => d.source.y)
+            .attr("x2", d => d.target.x)
+            .attr("y2", d => d.target.y);
 
         // Constrain nodes within bounds with padding
         const padding = 30;
@@ -512,21 +514,33 @@ function createForceGraph(container, graphData, isInteractive) {
 
 function updateSidePanel(nodeData) {
     const isCompany = nodeData.group === 1;
-    const connections = currentGraphData.links.filter(l => l.source.id === nodeData.id || l.target.id === nodeData.id).length;
+    
+    // Helper function to get link node IDs (handles both string and object formats)
+    const getLinkNodes = (l) => {
+        const sourceId = typeof l.source === 'string' ? l.source : l.source.id;
+        const targetId = typeof l.target === 'string' ? l.target : l.target.id;
+        return { sourceId, targetId };
+    };
+    
+    const connectionsFilter = currentGraphData.links.filter(l => {
+        const { sourceId, targetId } = getLinkNodes(l);
+        return sourceId === nodeData.id || targetId === nodeData.id;
+    });
+    const connections = connectionsFilter.length;
     
     // Get linked entities
-    const linkedEntities = currentGraphData.links
-        .filter(l => l.source.id === nodeData.id || l.target.id === nodeData.id)
-        .map(l => l.source.id === nodeData.id ? l.target.id : l.source.id);
+    const linkedEntities = connectionsFilter
+        .map(l => {
+            const { sourceId, targetId } = getLinkNodes(l);
+            return sourceId === nodeData.id ? targetId : sourceId;
+        });
     
     // Count different relationship types
     const relationshipCounts = {};
-    currentGraphData.links
-        .filter(l => l.source.id === nodeData.id || l.target.id === nodeData.id)
-        .forEach(l => {
-            const type = l.type || 'transaction';
-            relationshipCounts[type] = (relationshipCounts[type] || 0) + 1;
-        });
+    connectionsFilter.forEach(l => {
+        const type = l.type || 'transaction';
+        relationshipCounts[type] = (relationshipCounts[type] || 0) + 1;
+    });
     
     // Check if it's in the suspicious list and get details
     const tbody = document.getElementById('suspicious-body');
